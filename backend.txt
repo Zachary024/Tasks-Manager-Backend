@@ -1,0 +1,1607 @@
+==============================================================================
+BACKEND DEVELOPMENT — COMPLETE STUDY NOTES
+==============================================================================
+
+A refined, expanded reference covering the terminology, concepts, and architecture patterns
+needed to build backend services (Node.js / Express focused, but the concepts are universal).
+
+Table of contents
+
+  1. Client & Server — the foundation
+  2. The Request–Response Cycle
+  3. HTTP in Depth
+  4. APIs and REST
+  5. JSON
+  6. Node.js
+  7. npm, Packages & Dev Tooling
+  8. Express.js
+  9. Request Data: params vs query vs body
+  10. JavaScript Essentials for the Backend
+  11. Asynchronous JavaScript: Callbacks → Promises → async/await
+  12. CRUD Operations
+  13. Data & Storage Layer
+  14. Cross-Cutting Concerns: Auth, CORS, Security
+  15. Testing & Debugging APIs
+  16. Deployment & Production
+  17. To-Do List Project — Architecture
+  18. Practice Project: AI Study Assistant API
+  19. Quick Reference Glossary (A–Z)
+  20. Appendix: Misconceptions Fixed
+
+..............................................................................
+
+------------------------------------------------------------------------------
+1. CLIENT & SERVER — THE FOUNDATION
+------------------------------------------------------------------------------
+
+Client
+~~~~~~
+
+A client is a person or a device/program that requests data or services from a server.
+In web development the client is typically a browser (Chrome, Firefox, Safari), but it can equally
+be a mobile app, a desktop app, another server, a CLI tool, or a smart device.
+
+The client:
+- Initiates communication — the server never calls the client first in a standard HTTP setup.
+- Sends a request and waits for a response.
+- Renders or consumes the data it receives.
+
+Server
+~~~~~~
+
+A server is a computer or software application that provides data, services, or resources
+over a network. It listens for incoming requests, processes them, and returns responses.
+
+The server:
+- Listens on a port (e.g. localhost:3000 in development, port 80/443 in production).
+- Processes the request (routing, validation, business logic, database access).
+- Responds with data plus a status code.
+
+Server types you will meet:
+
+Type                        Purpose                             Examples
+------------------------------------------------------------------------------
+Web server                  Serves HTTP requests, static files  Nginx, Apache, IIS
+Application server          Runs your backend logic             Node.js + Express, Django, Laravel
+Database server             Stores and serves data              PostgreSQL, MySQL, MongoDB
+File / mail / cache server  Specialised storage & delivery      S3, SMTP servers, Redis
+
+Client–Server model in one line
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  | The client asks, the server answers. The protocol that governs the conversation is HTTP.
+
+Frontend vs Backend
+~~~~~~~~~~~~~~~~~~~
+
+- Frontend — everything the user sees and interacts with (HTML, CSS, JS in the browser).
+- Backend — the server-side logic, data storage, and APIs the frontend talks to.
+- Full-stack — working across both. Node.js makes this possible in a single language.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+2. THE REQUEST–RESPONSE CYCLE
+------------------------------------------------------------------------------
+
+The complete journey of a single request:
+
+ 1. User acts                → taps "Add task" in the UI
+ 2. Client builds request    → METHOD + URL + headers + optional body
+ 3. DNS + TCP + TLS          → resolve host, open connection, secure it
+ 4. Request travels          → over the network to the server
+ 5. Server receives          → web server forwards to your app
+ 6. Routing                  → Express matches METHOD + PATH to a handler
+ 7. Middleware chain         → logging, auth, body parsing, validation
+ 8. Controller → Service     → business rules run
+ 9. Repository → Storage     → data is read from / written to the DB
+10. Response is built        → status code + headers + body (usually JSON)
+11. Response travels back    → over the same connection
+12. Client handles it        → updates the UI, stores the token, shows an error
+
+Key properties:
+- Stateless — each request carries everything the server needs. The server does not
+  remember previous requests (unless you explicitly add sessions or a database).
+- Request/response pairs — every request gets exactly one response.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+3. HTTP IN DEPTH
+------------------------------------------------------------------------------
+
+HTTP (HyperText Transfer Protocol) is the communication protocol used to transfer information
+between clients and servers on the web. It is a text-based, request–response, stateless protocol.
+HTTPS is HTTP wrapped in TLS encryption — always use it in production.
+
+- HTTP request — a message sent by the client asking the server to perform an action or
+  return information. Contains: method, URL/path, headers, optional body.
+- HTTP response — the message the server sends back. Contains: status code, headers, body.
+
+3.1 Anatomy of a request
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+POST /lists/42/tasks HTTP/1.1
+Host: api.example.com
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOi...
+Accept: application/json
+
+{ "title": "Read chapter 4", "priority": 2 }
+
+Part     Meaning
+---------------------------------------------------------
+Method   The verb — what you want to do (POST)
+Path     The resource (/lists/42/tasks)
+Headers  Metadata: content type, auth, caching
+Body     The payload (only meaningful for POST/PUT/PATCH)
+
+3.2 Anatomy of a response
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+HTTP/1.1 201 Created
+Content-Type: application/json
+Location: /tasks/7f3a-...
+
+{ "id": "7f3a-...", "title": "Read chapter 4", "status": "TODO" }
+
+3.3 HTTP methods
+~~~~~~~~~~~~~~~~
+
+Method   Purpose                                                                 Has body?  Safe?  Idempotent?
+------------------------------------------------------------------------------
+GET      Retrieve a resource                                                     No         ✅ Yes  ✅ Yes
+POST     Create a resource / trigger an action                                   Yes        ❌ No   ❌ No
+PUT      Replace a resource entirely                                             Yes        ❌ No   ✅ Yes
+PATCH    Partially update a resource                                             Yes        ❌ No   ❌ No*
+DELETE   Remove a resource                                                       Optional   ❌ No   ✅ Yes
+HEAD     Same as GET but headers only (no body)                                  No         ✅ Yes  ✅ Yes
+OPTIONS  Ask what methods/features a resource supports (used by CORS preflight)  No         ✅ Yes  ✅ Yes
+
+\ PATCH can* be written to be idempotent, but it is not required to be.
+
+Safe = the request does not modify server state. Idempotent = sending it once or ten times
+produces the same end state on the server.
+
+GET — Requests data from a specified resource. Used to retrieve information (HTML, JSON, XML).
+Safe and idempotent, so browsers and proxies may cache it. Never use GET to change data.
+Parameters are sent in the URL as a query string: GET /tasks?status=DONE&tag=work.
+
+POST — Sends data to the server to create a new resource (or trigger a process). Used for form
+submissions, uploads, and creating records. Data travels in the request body, not the URL.
+Not idempotent: sending it twice creates two records (unless you add an idempotency key).
+
+PUT — Replaces the target resource with the request body. If a field is omitted, it is
+effectively cleared. Use when you send the complete new version of the resource.
+
+PATCH — Applies a partial update: only the fields you send are changed. Ideal for things like
+{ "status": "IN_PROGRESS" } or { "priority": 3 } without resending the whole object.
+
+DELETE — Instructs the server to remove the resource identified by the URL. Idempotent:
+deleting an already-deleted resource still ends in the same state (though the second request may
+return 404). Many APIs implement soft delete (a deleted_at timestamp) instead of hard delete.
+
+3.4 Status codes
+~~~~~~~~~~~~~~~~
+
+Range  Meaning        Common codes
+------------------------------------------------------------------------------
+1xx    Informational  100 Continue, 101 Switching Protocols
+2xx    Success        200 OK, 201 Created, 202 Accepted, 204 No Content
+3xx    Redirection    301 Moved Permanently, 302 Found, 304 Not Modified
+4xx    Client error   400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 405 Method Not Allowed, 409 Conflict, 422 Unprocessable Entity, 429 Too Many Requests
+5xx    Server error   500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout
+
+Rules of thumb:
+- 201 whenever you create something, and include a Location header.
+- 204 when an operation succeeded but there is nothing to return (typical for DELETE).
+- 401 = "you are not authenticated". 403 = "you are authenticated but not allowed".
+- 400 vs 422 — 400 for malformed input, 422 for well-formed JSON that fails business
+  validation (e.g. a due date in the past).
+- Never leak a stack trace inside a 500.
+
+3.5 Common headers
+~~~~~~~~~~~~~~~~~~
+
+Header                       Direction  Purpose
+------------------------------------------------------------------------------
+Content-Type                 both       Format of the body: application/json, text/html
+Accept                       request    What formats the client can handle
+Authorization                request    Credentials: Bearer <token> or Basic <base64>
+Cookie / Set-Cookie          both       Sending/storing session cookies (HttpOnly, Secure, SameSite)
+Cache-Control                both       Caching rules
+ETag / If-None-Match         both       Conditional requests / cache validation
+User-Agent                   request    Info about the client
+Access-Control-Allow-Origin  response   CORS permission
+Location                     response   Where the newly created resource lives
+
+3.6 HTTP versions in brief
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- HTTP/1.1 — one request per connection at a time (keep-alive helps). Still the default for most local dev.
+- HTTP/2 — multiplexed streams, header compression, binary framing.
+- HTTP/3 — built on QUIC/UDP, faster connection setup for lossy networks.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+4. APIS AND REST
+------------------------------------------------------------------------------
+
+What an API is
+~~~~~~~~~~~~~~
+
+An API (Application Programming Interface) is a contract that lets two pieces of software talk
+to each other without knowing each other's internals. One side exposes functions/endpoints; the
+other side calls them. In web development the API is usually reachable over HTTP.
+
+What a REST API is
+~~~~~~~~~~~~~~~~~~
+
+REST (Representational State Transfer) is an architectural style for APIs. A REST API is a
+backend interface that allows other applications to communicate with your server through HTTP
+requests. You are not "doing REST" just because you use JSON and HTTP:
+
+REST constraint            What it means in practice
+------------------------------------------------------------------------------
+Client–server              UI and data storage are separated; each evolves independently
+Statelessness              Every request carries its own context (e.g. a token). No server-side memory of the last request
+Cacheability               Responses declare whether they can be cached
+Uniform interface          Consistent URLs, standard methods, standard status codes, self-descriptive messages
+Layered system             Proxies, gateways and load balancers can sit between client and server
+Code on demand (optional)  Server may send executable code (rare)
+
+Practical REST conventions
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Model resources as nouns, plural: /tasks, /lists, /users.
+- Use HTTP methods as the verbs: GET /tasks, POST /tasks, PATCH /tasks/7, DELETE /tasks/7.
+- Use nested paths for ownership: /lists/42/tasks.
+- Use query strings for filtering/sorting/paging: /tasks?status=DONE&sort=-due&page=2&limit=20.
+- Keep responses in a consistent envelope: { "data": ..., "error": null, "meta": {...} }.
+- Version the API: /api/v1/tasks (path versioning is the most common and simplest).
+- Return the right status codes and let them carry meaning.
+- Handle errors with a stable shape:
+
+{ "error": { "code": "VALIDATION_ERROR", "message": "title is required", "field": "title" } }
+
+REST vs the alternatives
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Style       Typical use
+------------------------------------------------------------------------------
+REST        CRUD apps, public APIs — simple, cache-friendly, well-understood
+GraphQL     Clients need flexible, nested, precisely-shaped data in one round trip
+gRPC        Internal service-to-service calls, high performance, typed contracts
+WebSockets  Real-time bidirectional traffic (chat, live cursors, notifications)
+Webhooks    Server-to-server push notifications (the server calls you)
+
+..............................................................................
+
+------------------------------------------------------------------------------
+5. JSON
+------------------------------------------------------------------------------
+
+JSON (JavaScript Object Notation) is a lightweight, language-independent data-interchange
+format that is easy for humans to read and machines to parse. It is the de-facto standard for
+exchanging data between a client and a server.
+
+{
+  "id": "7f3a9c",
+  "title": "Finish lab report",
+  "done": false,
+  "priority": 3,
+  "tags": ["school", "urgent"],
+  "owner": { "name": "Amina", "email": "amina@example.com" }
+}
+
+Rules to remember
+- Keys must be double-quoted strings. Values may be: string, number, boolean, null, array, object.
+- No trailing commas, no comments, no functions, no undefined, no single quotes.
+- Objects use {}, arrays use [].
+- A JSON document's root can be an object or an array.
+- MIME type: application/json.
+
+Converting in JavaScript
+
+const jsonString = JSON.stringify({ id: 1, title: "Hi" });  // object  -> string (sending)
+const jsObject   = JSON.parse(jsonString);                  // string  -> object (receiving)
+const pretty     = JSON.stringify(jsObject, null, 2);       // human-readable, 2-space indent
+
+// Safety: JSON.parse throws on invalid input
+try { JSON.parse("{oops}"); } catch (e) { console.error("Bad JSON:", e.message); }
+
+JSON vs JavaScript objects — a JS object literal may contain functions, undefined, single
+quotes, comments and trailing commas; JSON may not. JSON.stringify silently drops keys whose
+value is undefined or a function, and throws on circular references.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+6. NODE.JS
+------------------------------------------------------------------------------
+
+Node.js is a runtime environment that lets you run JavaScript outside the browser — on the
+server side. It is built on Chrome's V8 engine (which compiles JS to machine code) plus
+libuv, which provides the event loop, thread pool and OS-level I/O.
+
+Why it matters
+~~~~~~~~~~~~~~
+
+- One language everywhere — JavaScript on both client and server, enabling full-stack
+  development with a single language and shared types/logic.
+- Event-driven, non-blocking I/O — instead of waiting for a database or file read, Node
+  registers a callback and moves on. This makes it efficient for handling many concurrent
+  connections (APIs, chat, streaming).
+- Same engine as Chrome — you get modern JS features immediately.
+
+The event loop (the heart of Node)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+JavaScript in Node runs on a single thread, but the event loop lets it juggle thousands of
+operations. Phases, in order (repeated forever while the process lives):
+
+   ┌───────────────────────────┐
+┌─►│ timers        (setTimeout, setInterval)         │
+│  ├───────────────────────────┤
+│  │ pending callbacks (deferred I/O callbacks)     │
+│  ├───────────────────────────┤
+│  │ poll          (wait for new I/O events)        │
+│  ├───────────────────────────┤
+│  │ check         (setImmediate callbacks)         │
+│  ├───────────────────────────┤
+│  │ close callbacks (socket closed, etc.)          │
+└──┴───────────────────────────┘
+       ↑ microtasks (process.nextTick, Promise callbacks)
+         run after EVERY phase — they have priority
+
+Practical consequences:
+- A long synchronous loop blocks everything — all other requests wait. Never do heavy CPU work
+  on the main thread (use a child process or worker_threads).
+- await does not block the thread; it pauses the async function and lets the loop continue.
+- Database calls, file reads and HTTP calls are asynchronous by design.
+
+Node's built-in modules you will actually use
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Module            Use
+--------------------------------------------------------------------
+http              Create a bare HTTP server (Express is built on it)
+fs / fs/promises  Read and write files
+path              Cross-platform path handling (path.join)
+os                System info
+events            EventEmitter — custom events
+crypto            Hashing, random UUIDs, encryption
+url               URL parsing
+stream            Process large data in chunks
+process           process.env, process.argv, process.exit()
+
+A minimal Node server (no framework)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+const http = require("http");
+
+const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+  } else {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
+  }
+});
+
+server.listen(3000, () => console.log("Listening on http://localhost:3000"));
+
+Express exists to make routing, middleware and error handling far less tedious than this.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+7. NPM, PACKAGES & DEV TOOLING
+------------------------------------------------------------------------------
+
+npm (Node Package Manager) ships with Node. It installs third-party libraries and scripts your
+project. package.json is the manifest; package-lock.json pins exact versions; node_modules/
+holds the installed code (never commit it).
+
+npm init -y                     # create package.json
+npm install express             # dependency (needed at runtime)
+npm install --save-dev nodemon  # devDependency (development only)
+npm install -g typescript       # global install
+npm run dev                     # run a script from package.json
+npm update / npm outdated       # keep dependencies current
+npm audit fix                   # patch known vulnerabilities
+
+{
+  "name": "todo-app",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": { "express": "^4.19.2" },
+  "devDependencies": { "nodemon": "^3.1.0" }
+}
+
+Nodemon — a development tool that watches your files and automatically restarts the Node.js
+process when you change code, so you do not have to stop and restart the server by hand.
+
+Postman / Insomnia / Thunder Client / curl / HTTPie — tools for testing the APIs you build:
+send requests with custom methods, headers and bodies, inspect responses, and save collections of
+requests as a lightweight regression suite. curl for quick checks:
+
+curl -X POST http://localhost:3000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Study HTTP"}'
+
+Other tools worth knowing
+
+Tool               Purpose
+-----------------------------------------------------------
+dotenv             Load .env files into process.env
+eslint + prettier  Catch bugs / enforce code style
+tsx, ts-node       Run TypeScript directly
+cross-env          Set environment variables cross-platform
+concurrently       Run server + client together
+git + GitHub       Version control and collaboration
+
+Environment variables keep secrets and config out of your code:
+
+// .env  (never commit this)
+// PORT=3000
+// DATABASE_URL=postgres://user:pass@localhost:5432/todo
+// JWT_SECRET=super-secret
+import "dotenv/config";
+const PORT = process.env.PORT || 3000;
+
+..............................................................................
+
+------------------------------------------------------------------------------
+8. EXPRESS.JS
+------------------------------------------------------------------------------
+
+Express.js is a popular, minimal, unopinionated web framework for Node.js. It provides routing,
+middleware, and simplified request/response handling so you can build REST APIs and web apps
+quickly, instead of hand-rolling everything on the http module.
+
+A complete small Express API
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+import express from "express";
+
+const app = express();
+
+// ---------- middleware ----------
+app.use(express.json());                       // parse JSON bodies into req.body
+app.use((req, res, next) => {                  // custom logger
+  console.log(`${req.method} ${req.url}`);
+  next();                                      // must call next() or the request hangs
+});
+
+// ---------- routes ----------
+app.get("/tasks", (req, res) => {
+  res.status(200).json([{ id: "1", title: "Study HTTP" }]);
+});
+
+app.post("/tasks", (req, res) => {
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ error: "title is required" });
+  res.status(201).json({ id: crypto.randomUUID(), title, status: "TODO" });
+});
+
+app.get("/tasks/:id", (req, res) => {
+  res.json({ id: req.params.id });
+});
+
+// ---------- 404 + error handlers (must come LAST) ----------
+app.use((req, res) => res.status(404).json({ error: "Route not found" }));
+
+app.use((err, req, res, next) => {             // 4 args = error handler
+  console.error(err);
+  res.status(err.status || 500).json({ error: err.message || "Server error" });
+});
+
+app.listen(process.env.PORT || 3000, () => console.log("API running"));
+
+Routing
+~~~~~~~
+
+A route is a path/endpoint that determines how an incoming request is handled. Each route
+pairs an HTTP method + URL pattern with a handler function that processes the request and
+produces a response. Routes may include route parameters to capture dynamic values.
+
+app.get("/lists/:listId/tasks/:taskId", (req, res) => { /* ... */ });
+
+// Grouping with a router
+import { Router } from "express";
+const router = Router();
+router.get("/", listTasks).post("/", createTask);
+app.use("/tasks", router);
+
+Route matching order matters — Express checks routes top-to-bottom and stops at the first
+match. Put specific routes (/tasks/stats) before parameterised ones (/tasks/:id).
+
+Middleware
+~~~~~~~~~~
+
+A middleware is a function (req, res, next) that runs between the request arriving and the
+response being sent. It can read/modify req and res, end the request, or pass control on with
+next(). Express apps are essentially a middleware pipeline.
+
+request → [json parser] → [logger] → [auth] → [validator] → [controller] → response
+                                                                  ↓ error
+                                                        [error handler]
+
+Kind               Example
+------------------------------------------------------------------------------
+Application-level  app.use(logger)
+Route-level        router.get("/x", auth, handler)
+Built-in           express.json(), express.urlencoded(), express.static("public")
+Third-party        cors(), helmet(), morgan(), express-rate-limit
+Error-handling     (err, req, res, next) => {}
+
+req and res essentials
+~~~~~~~~~~~~~~~~~~~~~~
+
+req.method  req.url  req.path  req.headers  req.params  req.query  req.body  req.ip
+req.get("Content-Type")          // read a header
+req.cookies?.token               // with cookie-parser
+
+res.status(201)
+res.json({ ok: true })
+res.send("plain text")
+res.redirect("/login")
+res.set("X-Total-Count", "128")
+res.sendFile(absolutePath)
+res.end()
+
+..............................................................................
+
+------------------------------------------------------------------------------
+9. REQUEST DATA: PARAMS VS QUERY VS BODY
+------------------------------------------------------------------------------
+
+Source       Where it lives    Example                                           Used for
+------------------------------------------------------------------------------
+req.params   The URL path      GET /tasks/42 → req.params.id === "42"            Identifying a specific resource
+req.query    After the ?       GET /tasks?status=DONE&page=2 → req.query.status  Filtering, sorting, paging, search
+req.body     The request body  POST /tasks with JSON                             Creating/updating data
+req.headers  Header section    req.headers.authorization                         Auth, content negotiation, metadata
+
+app.patch("/tasks/:id", (req, res) => {
+  const { id } = req.params;              // "7f3a"
+  const { status } = req.body;            // "DONE"
+  const { include } = req.query;          // "subtasks"
+  // ...
+});
+
+Always validate. Never trust input from a client. Prefer a schema library so validation lives
+in one place:
+
+import { z } from "zod";
+
+const CreateTask = z.object({
+  title: z.string().min(1).max(200),
+  priority: z.number().int().min(0).max(3).default(0),
+  due: z.string().datetime().optional(),
+});
+
+const parsed = CreateTask.safeParse(req.body);
+if (!parsed.success) return res.status(422).json({ error: parsed.error.issues });
+
+Alternatives: Joi, express-validator, class-validator, or a JSON Schema validator (Ajv).
+Note that schema validation also strips unknown fields — a cheap defence against mass assignment.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+10. JAVASCRIPT ESSENTIALS FOR THE BACKEND
+------------------------------------------------------------------------------
+
+Variables
+~~~~~~~~~
+
+Variables store data in a program. In JavaScript you declare them with var, let or const; the
+keyword determines scope and mutability.
+
+Keyword  Scope            Reassignable?  Redeclarable?  Notes
+------------------------------------------------------------------------------
+var      function-scoped  ✅              ✅              Hoisted and initialised as undefined; legacy — avoid
+let      block-scoped {}  ✅              ❌              Use when the value must change
+const    block-scoped {}  ❌              ❌              Default choice. The binding is constant; object contents can still mutate
+
+const MAX = 3;
+let count = 0;
+count++;
+
+const task = { title: "A" };
+task.title = "B";        // ✅ allowed — mutating the object
+// task = {};            // ❌ TypeError — reassigning the binding
+
+// Hoisting / TDZ
+console.log(typeof a);   // "undefined"  (var is hoisted)
+// console.log(b);       // ❌ ReferenceError (let/const are hoisted but in the Temporal Dead Zone)
+var a = 1; let b = 2;
+
+Primitive types: string, number, boolean, null, undefined, symbol, bigint.
+Everything else (objects, arrays, functions, dates) is an object — copied by reference, not value.
+
+Arrays
+~~~~~~
+
+An array is an ordered data structure that holds multiple values in a single variable. Arrays
+are zero-indexed (first element at index 0). Unlike languages such as C, a JavaScript array
+can mix types — numbers, strings, objects, even other arrays — and it grows dynamically.
+
+* Creating and accessing
+
+const tasks = ["Study", "Exercise", "Sleep"];
+tasks[0];                 // "Study"
+tasks.length;             // 3
+tasks[tasks.length - 1];  // last element
+tasks.at(-1);             // last element (modern syntax)
+
+* Iterating
+
+tasks.forEach((t, i) => console.log(i, t));
+for (const t of tasks) console.log(t);      // values
+for (const i in tasks) console.log(i);      // indexes
+
+* Non-mutating methods (return a new array — preferred)
+
+Method                                     Returns
+------------------------------------------------------------------------------
+map(fn)                                    New array with each element transformed
+filter(fn)                                 New array with elements that pass the test
+concat(arr)                                Joined array
+slice(start, end)                          A shallow copy of a portion (end exclusive; slice(1, 3))
+flat(depth) / flatMap(fn)                  Flattened array(s)
+join(sep)                                  String
+find(fn) / findIndex(fn) / findLast(fn)    First (or last) matching element / index
+some(fn) / every(fn)                       Boolean
+includes(v) / indexOf(v) / lastIndexOf(v)  Boolean / index
+reduce(fn, init)                           A single accumulated value
+toSorted(fn) / toReversed(fn)              New sorted/reversed array without mutating
+
+* Mutating methods (change the original array)
+
+Method                                Effect
+------------------------------------------------------------------------------
+push(x) / pop()                       Add / remove at the end
+unshift(x) / shift()                  Add / remove at the start
+splice(start, deleteCount, ...items)  Add, remove and replace elements in place
+sort(fn) / reverse()                  Reorder in place
+fill(v) / copyWithin()                Overwrite in place
+
+* splice() in detail
+
+splice() is an array method used to add, remove and replace elements in an array. It mutates
+the original array and returns the array of removed elements.
+
+const t = ["a", "b", "c", "d"];
+
+t.splice(1, 1);          // remove 1 item at index 1 → ["a","c","d"]      returns ["b"]
+t.splice(1, 0, "x");     // insert "x" at index 1  → ["a","x","c","d"]    returns []
+t.splice(2, 1, "y","z"); // replace 1 item at index 2 with "y","z"        returns ["c"]
+t.splice(-1, 1);         // remove the last item
+
+splice vs slice — splice mutates the original; slice returns a copy and leaves
+the original untouched. Naming trap: arr.slice(1) = copy, arr.splice(1) = destroy.
+
+  | Prefer map/filter/slice over splice/push for data transformations. Mutating shared
+  | arrays is a classic source of bugs, especially in a layered backend.
+
+reduce deserves special attention — it can express almost anything:
+
+const nums = [1, 2, 3, 4];
+nums.reduce((total, n) => total + n, 0);              // 10
+
+const tasks = [{ done: true }, { done: false }, { done: true }];
+tasks.reduce((acc, t) => { acc[t.done ? "done" : "open"]++; return acc; },
+             { done: 0, open: 0 });                   // { done: 2, open: 1 }
+
+Objects
+~~~~~~~
+
+An object stores related data in key–value pairs and represents real-world entities. Keys
+are strings (or symbols); values can be any type, including other objects, arrays and functions.
+Functions stored on an object are called methods.
+
+const task = {
+  id: "7f3a",
+  title: "Finish report",
+  tags: ["school"],
+  priority: 3,
+  complete() { this.status = "DONE"; },   // method
+};
+
+task.title;                  // dot notation  → "Finish report"
+task["title"];               // bracket notation → needed for dynamic keys
+task?.owner?.name;           // optional chaining → undefined instead of a crash
+task.due ?? "no due date";   // nullish coalescing → default only for null/undefined
+
+* Objects vs Maps
+
+Use a plain object for records with fixed, known keys (a Task). Use a Map when keys are dynamic
+or not strings, and for frequent add/delete:
+
+const byId = new Map();
+byId.set("7f3a", task);
+byId.get("7f3a");     // task
+byId.has("7f3a");     // true
+byId.size;            // 1
+
+* Copying, merging, destructuring
+
+const { title, priority = 0 } = task;          // destructuring with a default
+const [first, ...rest] = ["a", "b", "c"];      // array destructuring + rest
+const shallow = { ...task, priority: 1 };      // spread — new object, overridden field
+const merged  = Object.assign({}, a, b);       // same idea, older syntax
+
+const keys   = Object.keys(task);              // ["id","title","tags","priority"]
+const values = Object.values(task);
+const pairs  = Object.entries(task);           // [["id","7f3a"], ...]
+const clone  = structuredClone(task);          // deep clone (Node 17+)
+
+  | { ...task } is a shallow copy. Nested objects are still shared by reference — a very common
+  | source of accidental mutation. Use structuredClone() for a true deep copy.
+
+* Equality
+
+1 === "1";                       // false — strict, no coercion (always use ===)
+{a:1} === {a:1};                 // false — different references!
+JSON.stringify({a:1}) === JSON.stringify({a:1});   // true (order-dependent hack)
+
+Strings, numbers, dates
+~~~~~~~~~~~~~~~~~~~~~~~
+
+"Hello".toUpperCase().trim().split(",").join(" ");
+`Task "${task.title}" has ${task.tags.length} tags`;   // template literals
+Number("42");  parseInt("42px", 10);  (12.345).toFixed(2);
+new Date().toISOString();                    // "2026-10-12T09:15:00.000Z" — store UTC, format for display
+crypto.randomUUID();                         // ID generation in Node
+
+Modules
+~~~~~~~
+
+System      Syntax                                                  Notes
+------------------------------------------------------------------------------
+CommonJS    const x = require("./x") / module.exports = ...         Legacy Node default
+ES Modules  import x from "./x.js" / export default / export const  Modern; set "type": "module" in package.json
+
+Scope, closures, this
+~~~~~~~~~~~~~~~~~~~~~
+
+- Function scope vs block scope vs module scope vs global scope.
+- A closure is a function that remembers the variables from where it was defined — the basis of
+  middleware factories, counters, and private state.
+- this depends on how a function is called (method → the object; arrow function → inherited from
+  the enclosing scope). Prefer arrow functions in callbacks so this stays predictable.
+
+const makeCounter = () => { let n = 0; return () => ++n; };   // closure
+const next = makeCounter();
+next(); // 1
+next(); // 2
+
+Error handling
+~~~~~~~~~~~~~~
+
+class AppError extends Error {
+  constructor(message, status = 400, code = "BAD_REQUEST") {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+try {
+  throw new AppError("Task not found", 404, "NOT_FOUND");
+} catch (err) {
+  console.error(err.code, err.message);
+} finally {
+  // always runs — cleanup
+}
+
+Throw custom errors from the service layer and let the API layer translate them into status
+codes and JSON error bodies. That keeps HTTP out of your business logic.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+11. ASYNCHRONOUS JAVASCRIPT: CALLBACKS → PROMISES → ASYNC/AWAIT
+------------------------------------------------------------------------------
+
+Backend code is mostly waiting: for the database, the network, the file system. JavaScript handles
+this with asynchronous, non-blocking patterns.
+
+11.1 Callbacks (the original)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+fs.readFile("todo.json", "utf8", (err, data) => {
+  if (err) return console.error(err);
+  console.log(data);
+});
+
+Problem: nesting many callbacks produces unreadable callback hell and error handling is manual
+and repeated.
+
+11.2 Promises
+~~~~~~~~~~~~~
+
+A Promise is an object representing the eventual result of an asynchronous operation — a
+placeholder for a value that does not exist yet.
+
+States
+1. pending — initial state, neither fulfilled nor rejected.
+2. fulfilled — the operation completed successfully; the promise has a value.
+3. rejected — the operation failed; the promise has a reason (error).
+4. settled — fulfilled or rejected; a settled promise never changes again.
+
+Guarantees
+- A promise settles exactly once and then never changes state.
+- Handlers registered with .then() are always called asynchronously (never in the same tick).
+- Throwing inside a .then() rejects the resulting promise — errors propagate down the chain, so a
+  single .catch() at the end handles any failure above it.
+
+const p = new Promise((resolve, reject) => {
+  setTimeout(() => resolve("done"), 500);
+  // reject(new Error("failed"));
+});
+
+p.then(value => console.log(value))          // "done"
+ .catch(err  => console.error(err))          // handles any rejection above
+ .finally(()  => console.log("cleanup"));    // always runs
+
+Static combinators
+
+Method                     Resolves when                              Rejects when             Use for
+------------------------------------------------------------------------------
+Promise.all([...])         all fulfil (array of values, input order)  any rejects (fail-fast)  Parallel independent calls you all need
+Promise.allSettled([...])  all settle                                 never                    Best-effort batches, per-item status
+Promise.race([...])        first settles (value or error)             first settles            Timeouts
+Promise.any([...])         first fulfils                              all reject               Redundant sources, first success wins
+
+const [user, tasks] = await Promise.all([getUser(id), getTasks(id)]);   // ~1 round trip in time
+
+// Timeout pattern
+const withTimeout = (p, ms) => Promise.race([
+  p,
+  new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), ms)),
+]);
+
+11.3 async / await
+~~~~~~~~~~~~~~~~~~
+
+async/await is syntactic sugar on top of promises — synchronous-looking code over the same
+mechanism. An async function always returns a promise; await pauses that function (not the
+whole process) until the promise settles.
+
+async function loadBoard(listId) {
+  try {
+    const list  = await listRepo.findById(listId);       // sequential: needed before the next call
+    const tasks = await taskRepo.findByList(listId);
+    return { ...list, tasks };
+  } catch (err) {
+    throw new AppError("Could not load board", 500, "BOARD_FAILED");
+  }
+}
+
+// Independent work → run in parallel, not sequentially
+const [a, b] = await Promise.all([getA(), getB()]);      // ✅ faster than two awaits in a row
+
+Rules and traps
+- await only makes sense with a promise (or a thenable); awaiting a plain value just unwraps it.
+- Forgetting await gives you a Promise object, not the value — the #1 async bug.
+- for (const x of items) { await f(x); } runs serially. Use Promise.all(items.map(f)) for
+  parallelism, or a bounded-concurrency helper to avoid hammering the DB.
+- An async function that throws inside a callback (e.g. setTimeout) escapes try/catch — wrap the
+  callback's body instead.
+- Always handle rejections: an unhandled rejection can crash the process
+  (process.on("unhandledRejection", ...)).
+
+In Express, wrap async handlers so errors reach the error middleware:
+
+const asyncHandler = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+app.get("/tasks/:id", asyncHandler(async (req, res) => {
+  const task = await service.get(req.params.id);
+  if (!task) throw new AppError("Task not found", 404, "NOT_FOUND");
+  res.json(task);
+}));
+
+(Express 5 forwards rejected promises automatically; in Express 4 you need the wrapper.)
+
+11.4 Other async primitives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Timers — setTimeout, setInterval, setImmediate, queueMicrotask.
+- Event emitters / streams — data arrives in chunks over time.
+- AbortController — cancel a fetch or a long DB query.
+- WebSockets / SSE — long-lived connections instead of one request per message.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+12. CRUD OPERATIONS
+------------------------------------------------------------------------------
+
+CRUD = Create, Read, Update, Delete — the four basic operations on persisted data.
+
+CRUD    Meaning                 HTTP method                      Typical route               Success code
+------------------------------------------------------------------------------
+Create  Add a new record        POST (or PUT to a known URL)     POST /tasks                 201 Created
+Read    Retrieve existing data  GET                              GET /tasks, GET /tasks/:id  200 OK
+Update  Modify existing data    PATCH (partial) / PUT (replace)  PATCH /tasks/:id            200 OK or 204
+Delete  Remove existing data    DELETE                           DELETE /tasks/:id           204 No Content
+
+// CREATE
+app.post("/tasks", asyncHandler(async (req, res) => {
+  const task = await service.create(req.body);
+  res.status(201).location(`/tasks/${task.id}`).json(task);
+}));
+
+// READ (collection with filters)
+app.get("/tasks", asyncHandler(async (req, res) => {
+  res.json(await service.search(req.query));
+}));
+
+// READ (single)
+app.get("/tasks/:id", asyncHandler(async (req, res) => {
+  const task = await service.get(req.params.id);
+  if (!task) throw new AppError("Task not found", 404, "NOT_FOUND");
+  res.json(task);
+}));
+
+// UPDATE (partial)
+app.patch("/tasks/:id", asyncHandler(async (req, res) => {
+  res.json(await service.update(req.params.id, req.body));
+}));
+
+// DELETE
+app.delete("/tasks/:id", asyncHandler(async (req, res) => {
+  await service.remove(req.params.id);
+  res.status(204).end();
+}));
+
+The same CRUD shape applies to repositories (add, get, update, delete, list), services, and
+even the UI — that consistency is what makes layered apps easy to reason about.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+13. DATA & STORAGE LAYER
+------------------------------------------------------------------------------
+
+13.1 In-memory → JSON file → SQL
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Storage              Pros                                              Cons                                          When
+------------------------------------------------------------------------------
+In-memory array/Map  Instant, zero setup                               Lost on restart                               Tests, prototypes
+JSON file            Persists, human-readable                          Whole-file write, no concurrency, no queries  Tiny local apps (your todo.json)
+SQLite               Real SQL, single file, transactional              Single-writer                                 Local apps, small services
+PostgreSQL / MySQL   Concurrency, indexes, constraints, heavy queries  Needs a server                                Production
+MongoDB              Flexible documents, quick schema changes          Fewer relational guarantees                   Document-shaped data
+Redis                Blazing fast key–value, TTLs                      Volatile (usually)                            Cache, sessions, rate limits, queues
+
+13.2 SQL vs NoSQL in one paragraph
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+SQL stores rows in tables with a fixed schema, uses joins and enforces ACID transactions —
+choose it when your data is relational and correctness matters. NoSQL (document, key–value, graph)
+trades rigid schema and joins for flexibility and horizontal scale — choose it when the shape
+varies or you are optimising for specific access patterns at scale.
+
+13.3 Talking to a database
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// Raw driver (parameterised → SQL-injection safe)
+const { rows } = await pool.query(
+  "SELECT * FROM tasks WHERE status = $1 AND list_id = $2",
+  [status, listId]
+);
+
+// ORM / query builder
+// Prisma   : prisma.task.findMany({ where: { status, listId } })
+// Sequelize: Task.findAll({ where: { status, listId } })
+// Knex     : knex("tasks").where({ status, list_id: listId })
+// Mongoose : Task.find({ status, listId })        (MongoDB ODM)
+
+Never build SQL with string concatenation:
+
+db.query(`SELECT * FROM tasks WHERE id = '${req.params.id}'`);   // ❌ injection risk
+
+ORMs give you: models, relations, migrations, validation and type-safety — at the cost of some
+control over the generated SQL. Learn the SQL it emits; don't treat the ORM as magic.
+
+13.4 The Repository pattern
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The repository hides storage behind a small interface, so the service layer never knows whether
+data lives in memory, a file, or PostgreSQL.
+
+// repositories/base.py (or base.js) — the contract
+// add(task) | get(id) | update(task) | delete(id) | list(filter) | findByParent(id)
+
+// MemoryRepository → used by unit tests (fast, no setup)
+// JsonRepository   → used locally (persists to data/todo.json)
+// SqlRepository    → production
+
+Benefits: testability (swap in an in-memory repo), swappability (change databases without
+touching business rules), single responsibility (queries in one place), and a clean seam for
+caching later. This is the D in SOLID's dependency inversion: services depend on an
+abstraction, not a concrete database.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+14. CROSS-CUTTING CONCERNS: AUTH, CORS, SECURITY
+------------------------------------------------------------------------------
+
+These concerns cut across every route, so they live in middleware.
+
+Authentication vs Authorisation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Authentication (authn) — who are you? Login, passwords, tokens, OAuth.
+- Authorisation (authz) — what may you do? Roles, ownership checks, permissions.
+
+Approach          How it works                                                                Trade-off
+------------------------------------------------------------------------------
+Session + cookie  Server stores session state; browser sends a session ID cookie              Easy to revoke; needs shared session store when scaling
+JWT               Server signs a stateless token; client sends Authorization: Bearer <token>  Scales well, no lookup; hard to revoke before expiry, so keep TTLs short
+OAuth 2.0 / OIDC  Delegate to Google/GitHub etc.                                              Fast to build, depends on a third party
+
+Password rules — never store plain passwords. Hash with bcrypt or argon2 and a per-user
+salt. Hashing is one-way and deliberately slow:
+
+const hash = await bcrypt.hash(password, 12);
+const ok   = await bcrypt.compare(password, user.passwordHash);
+
+Auth middleware skeleton
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token  = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Missing token" });
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+app.delete("/tasks/:id", requireAuth, deleteTask);   // protect per route
+
+CORS (Cross-Origin Resource Sharing)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Browsers block a page from calling a different origin (scheme + host + port) unless the API opts
+in with response headers. Your frontend on :5173 calling an API on :3000 is cross-origin.
+
+import cors from "cors";
+app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
+
+Simple requests go straight through; others trigger an OPTIONS preflight first. CORS is a
+browser protection — curl and Postman ignore it.
+
+Security checklist
+~~~~~~~~~~~~~~~~~~
+
+- Hash passwords; never log secrets or tokens.
+- Keep secrets in environment variables, never in git.
+- Validate and sanitise all input; parameterise all queries.
+- helmet() for sensible security headers; set HttpOnly, Secure, SameSite on cookies.
+- Rate-limit login and write endpoints (express-rate-limit) to blunt brute force.
+- Enforce authorisation per resource — "logged in" ≠ "allowed to touch this task".
+- Set request body size limits (express.json({ limit: "100kb" })).
+- Prefer HTTPS; keep dependencies patched (npm audit).
+- Return generic error messages to clients; log details server-side.
+
+Logging & observability
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Structured, levelled logs (morgan, pino, winston): request id, method, path, status, duration,
+user id. Add a /health endpoint for uptime checks and alerting on error rates and latency.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+15. TESTING & DEBUGGING APIS
+------------------------------------------------------------------------------
+
+The test pyramid
+~~~~~~~~~~~~~~~~
+
+Level                 Scope                                                                        Tooling                                Speed
+------------------------------------------------------------------------------
+Unit                  One function/class — models, services, validators                            Jest / Vitest / node:test              Very fast
+Integration           Layer boundaries — repository against a real (or temp) DB, routes + service  Jest + Supertest + a test DB           Medium
+API / E2E             Full request → response over HTTP                                            Supertest, Postman/Newman, Playwright  Slower
+Manual / exploratory  Real usage, edge cases                                                       Postman, browser, curl                 Ad-hoc
+
+Principles
+~~~~~~~~~~
+
+- One behavior per test; the test name states the expected behavior.
+- AAA — Arrange, Act, Assert.
+- Tests must be independent and repeatable: no shared mutable state, no reliance on order.
+- Use the in-memory repository for service tests so they run in milliseconds with zero setup.
+- Run every repository implementation against the same shared test suite — if the JSON repo and
+  the SQL repo both pass, the implementations really are interchangeable.
+- Test the unhappy paths too: missing fields, bad IDs, duplicate titles, unauthorised access.
+- Aim for meaningful coverage of business rules, not a coverage percentage.
+
+// tests/test_service.js (Jest + Supertest style)
+test("completing a task sets status and completed_at", async () => {
+  const repo = new MemoryRepository();
+  const service = new TaskService(repo);
+  const task = await service.create({ title: "A" });
+
+  const done = await service.complete(task.id);
+
+  expect(done.status).toBe("DONE");
+  expect(done.completed_at).not.toBeNull();
+});
+
+test("POST /tasks rejects a missing title", async () => {
+  const res = await request(app).post("/tasks").send({});
+  expect(res.status).toBe(422);
+  expect(res.body.error.code).toBe("VALIDATION_ERROR");
+});
+
+Debugging
+~~~~~~~~~
+
+- console.log for a quick look; structure your logs so you can grep them.
+- curl -v / Postman to isolate client problems from server problems.
+- node --inspect + Chrome DevTools for real breakpoints.
+- Reproduce with the smallest possible request; check status code → headers → body in that order.
+- Common causes: missing express.json() (empty req.body), missing await (a Promise where a
+  value belongs), forgetting next() (request hangs), wrong route order, CORS preflight rejection.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+16. DEPLOYMENT & PRODUCTION
+------------------------------------------------------------------------------
+
+Steps
+~~~~~
+
+1. Configure — read PORT and secrets from the environment, not the code.
+2. Build/clean — compile TypeScript, run tests, lint.
+3. Host — Render, Railway, Fly.io, Heroku, Vercel (serverless), AWS/GCP/Azure, or your own VPS.
+4. Process management — pm2 or systemd to keep the process alive and restart on crash:
+
+   pm2 start src/server.js --name todo-api -i max   # cluster mode across CPU cores
+   pm2 save && pm2 startup
+
+5. Reverse proxy — Nginx/Caddy in front for TLS termination, gzip, static files and rate limits.
+6. HTTPS — free certificates from Let's Encrypt (certbot); redirect HTTP → HTTPS.
+7. Database — managed Postgres/Mongo; run migrations on deploy; back up regularly.
+8. CI/CD — GitHub Actions: lint → test → build → deploy on merge to main.
+9. Monitor — logs, uptime pings, error tracking (Sentry), metrics (latency, error rate, RPS).
+10. Scale — vertical (bigger box) → horizontal (more instances behind a load balancer) →
+    caching (Redis) → read replicas → background job queue for slow work.
+
+Docker (the short version)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY . .
+EXPOSE 3000
+CMD ["node", "src/server.js"]
+
+Twelve-factor habits worth adopting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Config in env vars · explicit dependencies in the manifest · stateless processes · logs as event
+streams to stdout · dev/prod parity · graceful shutdown (SIGTERM → stop accepting, finish
+in-flight requests, close the DB pool, exit).
+
+..............................................................................
+
+------------------------------------------------------------------------------
+17. TO-DO LIST PROJECT — ARCHITECTURE
+------------------------------------------------------------------------------
+
+17.1 Overview
+~~~~~~~~~~~~~
+
+A layered application. Each layer only talks to the layer directly below it, so storage or UI
+can be swapped without touching business logic.
+
+    ┌──────────────────────────────────────────────────┐
+    │  PRESENTATION LAYER   (CLI / Web UI / Mobile)    │
+    └──────────────────────────────────────────────────┘
+                          ↓
+    ┌──────────────────────────────────────────────────┐
+    │  API / CONTROLLER LAYER   (REST or function API) │
+    └──────────────────────────────────────────────────┘
+                          ↓
+    ┌──────────────────────────────────────────────────┐
+    │  SERVICE LAYER   (business rules)                │
+    └──────────────────────────────────────────────────┘
+                          ↓
+    ┌──────────────────────────────────────────────────┐
+    │  REPOSITORY LAYER   (data access interface)      │
+    └──────────────────────────────────────────────────┘
+                          ↓
+    ┌──────────────────────────────────────────────────┐
+    │  STORAGE   (in-memory / JSON file / SQLite / SQL)│
+    └──────────────────────────────────────────────────┘
+
+17.2 Folder structure
+~~~~~~~~~~~~~~~~~~~~~
+
+Language-agnostic version (as originally specified):
+
+todo-app/
+├── README.md
+├── requirements.txt
+├── src/
+│   ├── main.py                 # entry point
+│   ├── models/
+│   │   ├── task.py             # Task dataclass, Status enum
+│   │   └── task_list.py        # TaskList dataclass
+│   ├── repositories/
+│   │   ├── base.py             # abstract repository interface
+│   │   ├── memory_repo.py      # in-memory implementation
+│   │   ├── json_repo.py        # file-based implementation
+│   │   └── sql_repo.py         # database implementation
+│   ├── services/
+│   │   └── task_service.py     # add, edit, complete, move, search
+│   ├── api/
+│   │   ├── routes.py           # endpoints or command handlers
+│   │   └── schemas.py          # request/response validation
+│   └── ui/
+│       └── cli.py              # or web/ frontend
+├── tests/
+│   ├── test_models.py
+│   ├── test_service.py
+│   └── test_repositories.py
+└── data/
+    └── todo.json               # or todo.db
+
+The same architecture in Node/Express (matching the rest of these notes):
+
+todo-app/
+├── package.json
+├── .env.example
+├── src/
+│   ├── server.js                # app.listen() — the "main"
+│   ├── app.js                   # express app + middleware (testable, no listen)
+│   ├── models/
+│   │   └── task.js              # Task shape, Status enum
+│   ├── repositories/
+│   │   ├── base.js              # interface / JSDoc contract
+│   │   ├── memory.repo.js
+│   │   ├── json.repo.js
+│   │   └── sql.repo.js
+│   ├── services/
+│   │   └── task.service.js      # business rules
+│   ├── api/
+│   │   ├── task.routes.js       # routes + controllers
+│   │   ├── list.routes.js
+│   │   └── schemas.js           # Zod/Joi validation
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   ├── error.js
+│   │   └── validate.js
+│   └── utils/
+│       └── errors.js            # AppError
+├── tests/
+│   ├── task.service.test.js
+│   ├── repositories.test.js
+│   └── api.test.js
+└── data/
+    └── todo.json
+
+17.3 Layer responsibilities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Presentation
+- Displays lists and tasks, collects user input.
+- Contains no business logic.
+
+API / Controller
+- Validates input, calls the service layer, formats output.
+- Translates errors into user-friendly messages or HTTP status codes.
+
+Service
+- All business rules live here:
+  - create, edit, delete tasks
+  - change status (TODO → IN_PROGRESS → DONE)
+  - set completed_at when a task is marked done
+  - handle subtasks (parent_id) and reordering
+  - filter and search (by tag, priority, due date, status)
+- Depends on the repository interface, not a concrete database.
+
+Repository
+- Abstract interface: add, get, update, delete, list.
+- One implementation per storage backend.
+
+Storage
+- Starts in-memory or JSON; move to SQLite/PostgreSQL later by adding a new repository class only.
+
+17.4 Data model
+~~~~~~~~~~~~~~~
+
+Task
+  id            unique ID (UUID)
+  title         text
+  notes         text
+  status        TODO | IN_PROGRESS | DONE
+  priority      0 (none) .. 3 (high)
+  due           datetime or null
+  tags          set of strings
+  parent_id     ID of parent task or null (subtasks)
+  created_at    datetime
+  completed_at  datetime or null
+
+TaskList
+  id            unique ID (UUID)
+  name          text
+  tasks         map of task ID → Task
+  order         list of task IDs (display order)
+
+// JS equivalent
+const Status = Object.freeze({ TODO: "TODO", IN_PROGRESS: "IN_PROGRESS", DONE: "DONE" });
+
+class Task {
+  constructor({ title, notes = "", priority = 0, due = null, tags = [], parent_id = null }) {
+    this.id = crypto.randomUUID();
+    this.title = title;
+    this.notes = notes;
+    this.status = Status.TODO;
+    this.priority = priority;
+    this.due = due;
+    this.tags = new Set(tags);
+    this.parent_id = parent_id;
+    this.created_at = new Date().toISOString();
+    this.completed_at = null;
+    this.createdAt... // keep one naming convention: snake_case in the API, camelCase in code
+  }
+}
+
+Database mapping (if using SQL)
+
+lists       (id, name)
+tasks       (id, list_id, parent_id, title, notes, status,
+             priority, due, position, created_at, completed_at)
+task_tags   (task_id, tag)
+
+Add these constraints so the database protects your invariants:
+- NOT NULL on id, list_id, title, status, created_at.
+- FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE.
+- FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE (subtasks).
+- CHECK (status IN ('TODO','IN_PROGRESS','DONE')), CHECK (priority BETWEEN 0 AND 3).
+- Primary keys on the join table: PRIMARY KEY (task_id, tag).
+- Indexes on list_id, status, due — the columns you filter and sort by.
+
+17.5 Core flow — "Complete a task"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+User clicks "Done"
+  → UI calls complete_task(task_id)
+  → API validates the ID (UUID, exists)
+  → Service loads the task via the repository
+  → Service checks the transition is legal (e.g. DONE requires IN_PROGRESS? or allow any)
+  → Service sets status = DONE and completed_at = now
+  → Service cascades to subtasks if the rule says so
+  → Repository saves the task
+  → API returns 200 with the updated task
+  → UI refreshes the list
+
+17.6 API endpoints (REST)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Method  Path                               Purpose                             Success
+------------------------------------------------------------------------------
+GET     /lists                             List all task lists                 200
+POST    /lists                             Create a list                       201
+GET     /lists/{id}                        Get one list                        200
+GET     /lists/{id}/tasks                  Tasks in a list                     200
+POST    /lists/{id}/tasks                  Create a task                       201
+GET     /tasks/{id}                        Get one task (with subtasks)        200
+PATCH   /tasks/{id}                        Update fields or status             200
+POST    /tasks/{id}/complete               State transition (explicit action)  200
+DELETE  /tasks/{id}                        Delete a task (and subtasks)        204
+PUT     /lists/{id}/order                  Reorder tasks                       200
+GET     /tasks?tag=&status=&due=&q=&sort=  Filter and search                   200
+
+17.7 Design decisions and why
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Decision                                      Rationale
+------------------------------------------------------------------------------
+Repository pattern                            Swap storage without changing services; test with an in-memory repo
+UUIDs                                         Stable, unguessable IDs that survive deletes, reorders and multi-device sync
+Flat subtasks via parent_id                   Simpler storage and queries; build the tree at render time
+Status enum instead of a done flag            Easy to add new states (BLOCKED, CANCELLED) without migration pain
+Separate order list                           Reordering never modifies task data, so it never triggers a task write
+Service owns the clock                        completed_at is set in one place, so it is always consistent
+Validation at the edge, rules in the service  Shape checks in the API; business invariants in the service
+Soft delete (deleted_at)                      Recoverable, and safer for eventual sync — optional but powerful
+DTO/schema layer                              Client sees a stable contract even if internal models change
+
+17.8 Testing strategy
+~~~~~~~~~~~~~~~~~~~~~
+
+- Unit tests — models and service logic, using the in-memory repository so they run fast and need
+  no setup.
+- Integration tests — each repository implementation against the same shared test suite.
+- API tests — endpoint behaviour, validation errors, status codes, auth.
+- Edge cases to cover — empty title, 500-character title, unknown ID, deleting a parent task,
+  completing an already-completed task, reordering a list with unknown IDs, filters that match
+  nothing, concurrent edits to the same task.
+
+17.9 Roadmap (build it in this order)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Task model + Status enum.
+2. MemoryRepository implementing the interface.
+3. TaskService with create/list/get/update/delete/complete and the search filters.
+4. Unit tests for the service.
+5. Express app + routes + validation, tested with Supertest.
+6. JsonRepository (persist to data/todo.json), then run the shared repository suite.
+7. SqlRepository (SQLite → Postgres), migrations, indexes.
+8. CLI or React frontend on top of the API.
+9. Auth, tags/priorities polish, reminders, import/export.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+18. PRACTICE PROJECT: AI STUDY ASSISTANT API
+------------------------------------------------------------------------------
+
+A good follow-up project that exercises everything above (the original note left this unfinished).
+
+Goal: an API that helps a student study, powered by an LLM provider.
+
+Core resources
+
+Resource   Fields
+------------------------------------------------------------------
+Document   id, owner_id, title, subject, raw_text, created_at
+Note       id, document_id, heading, content
+Flashcard  id, document_id, question, answer, ease, next_review_at
+Quiz       id, document_id, questions[], created_at
+Attempt    id, quiz_id, answers[], score, submitted_at
+
+Endpoints
+
+POST   /documents                 upload/paste notes  → split into chunks → store
+GET    /documents?subject=&q=     list/search documents
+POST   /documents/{id}/summary    generate a summary
+POST   /documents/{id}/flashcards generate flashcards
+GET    /flashcards?due=today      spaced-repetition queue
+POST   /flashcards/{id}/review    { grade: 1..5 } → schedule next review
+POST   /documents/{id}/quiz       generate a quiz
+POST   /quizzes/{id}/attempts     submit answers → score + feedback
+GET    /progress                  study stats over time
+
+Layers exercise
+- Provider abstraction — an LLMProvider interface (summarise, generateFlashcards,
+  generateQuiz) with OpenAIProvider / LocalProvider implementations. Same dependency-inversion
+  trick as the repository pattern: swap providers without touching the service.
+- Async/await everywhere — LLM calls are slow. Use Promise.all for parallel chunk summaries,
+  add timeouts (AbortController), and never block the event loop.
+- Cost and rate limits — cache identical prompts, cap token usage, queue long jobs.
+- Long tasks — summary/quiz generation is a good candidate for a background job with a
+  202 Accepted + GET /jobs/{id} status endpoint.
+- Security — per-user authorisation on every document; strict schemas on all LLM output before
+  you trust it; never echo raw model output into logs or HTML unescaped.
+
+Stretch goals: spaced-repetition algorithm (SM-2), full-text search (Postgres tsvector),
+streaming responses (SSE) for chat tutoring, export to Anki/CSV, usage analytics dashboard.
+
+..............................................................................
+
+------------------------------------------------------------------------------
+19. QUICK REFERENCE GLOSSARY (A–Z)
+------------------------------------------------------------------------------
+
+Term                  Definition
+------------------------------------------------------------------------------
+ACID                  Atomicity, Consistency, Isolation, Durability — database transaction guarantees
+API                   Application Programming Interface — a contract letting software communicate
+Async/await           Syntax over promises for writing asynchronous code synchronously
+Body                  The payload of a request/response (JSON, form data, file bytes)
+CORS                  Cross-Origin Resource Sharing — browser rules for cross-domain requests
+CRUD                  Create, Read, Update, Delete
+CSRF                  Cross-Site Request Forgery — attack where a site triggers an authenticated request
+DTO                   Data Transfer Object — the shape of data crossing a boundary
+Endpoint              A specific URL + method that an API exposes
+Enum                  A fixed set of allowed values (TODO, IN_PROGRESS, DONE)
+Environment variable  Configuration read from the OS, outside your code
+Event loop            Node's mechanism for running async work on a single thread
+Express               Minimal Node.js web framework for routing and middleware
+Foreign key           A column referencing another table's primary key
+Idempotent            Repeatable without changing the end state
+Index                 Database structure that speeds up lookups on a column
+JWT                   JSON Web Token — a signed, stateless auth token
+Middleware            A function in the request pipeline that can inspect/modify/stop a request
+Migration             A versioned, revertible change to the database schema
+MVC                   Model–View–Controller separation of concerns
+Node.js               JavaScript runtime built on V8, event-driven and non-blocking
+Nodemon               Dev tool that restarts the server on file changes
+npm                   Node package manager and registry
+ORM                   Object-Relational Mapper — maps objects to database tables
+Postman               GUI tool for testing APIs
+Promise               Object representing the eventual result of an async operation
+Query string          ?key=value parameters appended to a URL
+Rate limiting         Capping how many requests a client may make in a window
+REST                  Architectural style for HTTP APIs based on resources and standard methods
+Repository            Pattern that hides data access behind an interface
+Route                 Method + path pattern mapped to a handler
+Schema                Structure/validation rules for data
+SQL injection         Attack via unescaped user input in a query; prevented by parameterisation
+Stateless             The server keeps no memory between requests
+Status code           Three-digit result indicator on an HTTP response
+Transaction           A group of DB operations that all succeed or all roll back
+UUID                  Universally Unique Identifier — used for stable record IDs
+Validation            Checking that input matches the expected shape and rules
+Webhook               A server-to-server HTTP callback
+
+..............................................................................
+
+------------------------------------------------------------------------------
+20. APPENDIX: MISCONCEPTIONS FIXED
+------------------------------------------------------------------------------
+
+Small corrections to points in the original notes:
+
+1. "Arrays typically hold elements of the same data type." True in C, Java or Python-with-typing
+   — not in JavaScript. JS arrays are heterogeneous and dynamically sized. *(In Python, list
+   is also heterogeneous; array.array is the typed one.)*
+2. "splice() adds, removes and replaces variables." It operates on array elements, not
+   variables. It also mutates the original array and returns the removed elements — and it is
+   easy to confuse with slice(), which returns a copy. (see §10)
+3. "DELETE is idempotent." Correct — but note that a repeat call often returns 404. Idempotency
+   is about the resulting state, not the status code of the second request.
+4. "POST creates, PUT updates." Mostly right, but the real rule is: POST is unpredictable and
+   non-idempotent; PUT replaces a resource at a known URL and is idempotent. PUT /tasks/42 can
+   legitimately create task 42 — it is "upsert" semantics.
+5. "PATCH is like PUT but partial." Add the caveat: PATCH is not required to be idempotent,
+   and update semantics for arrays/null need explicit rules, which is exactly why JSON Merge Patch
+   (RFC 7396) and JSON Patch (RFC 6902) exist.
+6. "JSON is basically a JavaScript object." They are similar but distinct — JSON forbids
+   comments, single quotes, trailing commas, undefined and functions. Always JSON.parse /
+   JSON.stringify at the boundary.
+7. "var/let/const are interchangeable." They differ in scope, hoisting and TDZ. Default to
+   const, use let only when you must reassign, and avoid var in new code.
+8. "Node.js is multithreaded." Your JavaScript runs on a single thread; libuv uses a thread
+   pool for I/O and hashing under the hood. CPU-heavy work needs worker_threads or a child process,
+   otherwise you block every request.
+9. "Nodemon is required in production." It is a development-only tool. Production should run
+   plain node under a process manager like PM2 or systemd.
+10. "Postman is the API." Postman is a client for testing your API. The API is the server
+    code. Manual collections should be backed by automated tests (Jest + Supertest/Newman).
+11. "A REST API just means JSON over HTTP." REST is a set of architectural constraints —
+    resources, statelessness, uniform interface, cacheability, layered systems (see §4).
+12. { ...task } copies everything. It is a shallow copy. Nested objects are still shared,
+    so mutating copy.tags can mutate the original. Use structuredClone() for deep copies.
+
+..............................................................................
+
+Suggested study path (4 weeks)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Week  Focus                                                        Deliverable
+------------------------------------------------------------------------------
+1     HTTP, JSON, status codes, Postman                            Call a public API and document 10 requests
+2     Node + Express basics, routing, middleware                   CRUD API over an in-memory array
+3     Layered architecture, repository pattern, validation, tests  Refactor week 2 into layers + Jest tests
+4     Persistence, auth, deployment                                SQLite/Postgres repo, JWT login, deployed URL
+
+Habit that beats everything else: for each endpoint you build, write down the request, the
+response, the failure modes, and the status code before you write the code. Backend development is
+mostly about contracts.

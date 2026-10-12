@@ -1,0 +1,271 @@
+/* ══════════════════════════════════════════════════════════════
+   "Sunlit Paper" — an alternative theme for the To-Do List
+   Light, warm, stationery-like. No glassmorphism, no neon,
+   no background photo — soft cards, ink text, serif headings.
+   Drop-in replacement for style.css: same selectors, no markup
+   or script changes required.
+   ══════════════════════════════════════════════════════════════ */
+
+:root{
+    --paper:   #f6f1e7;   /* warm cream page        */
+    --card:    #fffdf8;    /* soft white cards       */
+    --field:   #f8f4ea;    /* inset input field      */
+    --ink:     #242a22;    /* greenish-black text    */
+    --muted:   #8a9184;    /* secondary text         */
+    --line:    #e6ddca;    /* hairline borders       */
+    --accent:  #c96f2e;    /* terracotta             */
+    --sage:    #5f7a5a;    /* garden green           */
+    --danger:  #b3402f;    /* brick red              */
+    --shadow:  0 1px 2px rgba(70,58,32,.05),
+               0 10px 28px rgba(70,58,32,.08);
+}
+
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body{
+    min-height: 100vh;
+    color: var(--ink);
+    font-family: "Inter", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    background-color: var(--paper);
+    /* gentle ambient light instead of a photo */
+    background-image:
+        radial-gradient(1100px 520px at 88% -8%,  rgba(242, 200, 150, .38), transparent 60%),
+        radial-gradient(900px 520px  at -8% 108%, rgba(150, 178, 140, .28), transparent 60%);
+    background-attachment: fixed;
+}
+
+::selection{
+    background: rgba(201, 111, 46, .22);
+}
+
+main{
+    width: min(100% - 40px, 660px);   /* one column for form + tasks */
+    margin-inline: auto;
+    padding-block: 64px 96px;
+}
+
+/* ── "Add a New Task" strip: looks like an empty, waiting slot ── */
+#plus{
+    text-align: center;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: .2px;
+    color: var(--muted);
+    background: transparent;
+    border: 1.5px dashed var(--line);
+    border-radius: 16px;
+    padding: 18px 20px;
+    cursor: pointer;
+    transition: border-color .2s ease, color .2s ease, background-color .2s ease;
+}
+#plus:hover{
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(255, 253, 248, .7);
+}
+
+/* ── form card ── */
+form{
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 26px 26px 24px;
+    margin-top: 18px;
+    box-shadow: var(--shadow);
+    display: none;
+}
+.show{
+    display: block;
+    animation: rise .28s ease both;
+}
+@keyframes rise{
+    from{ opacity: 0; transform: translateY(8px); }
+    to  { opacity: 1; transform: none; }
+}
+
+h1{
+    text-align: center;
+    font-family: "Fraunces", Georgia, "Times New Roman", serif;
+    font-size: clamp(30px, 6vw, 40px);
+    font-weight: 600;
+    letter-spacing: -.4px;
+    font-variation-settings: "opsz" 96;
+}
+/* a little tagline, drawn by CSS — no markup change needed */
+h1::after{
+    content: "one small tick at a time";
+    display: block;
+    margin-top: 6px;
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: .3px;
+    color: var(--muted);
+}
+
+.wrapper{
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+/* scope to text inputs so task checkboxes stay small */
+input[type="text"]{
+    flex: 1;
+    min-width: 0;
+    padding: 13px 16px;
+    font-size: 16px;
+    font-family: inherit;
+    color: var(--ink);
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    outline: none;
+    transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+}
+input[type="text"]::placeholder{
+    color: #b0b4a6;
+}
+input[type="text"]:focus{
+    background: #fffefb;
+    border-color: var(--sage);
+    box-shadow: 0 0 0 4px rgba(95, 122, 90, .15);
+}
+
+#submit{
+    width: 48px;
+    flex: 0 0 auto;
+    font-size: 16px;
+    color: var(--paper);
+    background: var(--ink);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: background-color .2s ease, transform .15s ease;
+}
+#submit:hover{
+    background: var(--accent);
+    transform: translateY(-1px);
+}
+#submit:active{
+    transform: scale(.96);
+}
+#submit:focus-visible,
+#plus:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* ── task list ── */
+section{
+    width: 100%;
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+section div{                       /* .task card */
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px 14px 14px 18px;
+    box-shadow: 0 1px 2px rgba(70, 58, 32, .04);
+    transition: box-shadow .2s ease, border-color .2s ease, transform .2s ease;
+}
+section div:hover{
+    border-color: #d8ccb2;
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+}
+
+/* checkbox was appended last by the script; reorder it to the front */
+#container div input[type="checkbox"]{
+    order: -1;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    accent-color: var(--sage);
+    cursor: pointer;
+}
+
+#container div p:first-of-type{    /* .text */
+    flex: 1;
+    font-size: 16.5px;
+    line-height: 1.45;
+    color: var(--ink);
+    word-break: break-word;
+}
+
+/* trash / edit — round icon buttons on the right edge */
+#container div p:last-of-type{
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+#container div span{
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    color: var(--muted);
+    background: transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: color .2s ease, background-color .2s ease;
+}
+#container div span:first-of-type:hover{   /* delete */
+    color: #fff;
+    background: var(--danger);
+}
+#container div span:last-of-type:hover{    /* edit */
+    color: #fff;
+    background: var(--sage);
+}
+
+.done{
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    text-decoration-color: var(--accent);
+    opacity: .75;
+}
+
+/* ── auto dark mode: the same paper, left out in the evening ── */
+@media (prefers-color-scheme: dark){
+    :root{
+        --paper:  #141613;
+        --card:   #1d211c;
+        --field:  #232822;
+        --ink:    #e9e6da;
+        --muted:  #99a08f;
+        --line:   #303630;
+        --accent: #e08a4a;
+        --danger: #cf5a45;
+    }
+    body{
+        background-image:
+            radial-gradient(1100px 520px at 88% -8%,  rgba(224, 138, 74, .08), transparent 60%),
+            radial-gradient(900px 520px  at -8% 108%, rgba(120, 160, 110, .07), transparent 60%);
+    }
+}
+
+/* ── small screens ── */
+@media (max-width: 480px){
+    main{ padding-block: 36px 64px; }
+    form{ padding: 20px 16px; }
+    .wrapper{ flex-wrap: wrap; }
+    #submit{ width: 100%; height: 44px; }
+    section div{ padding: 12px 10px 12px 14px; }
+}
